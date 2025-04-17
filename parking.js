@@ -2,11 +2,10 @@ const express = require('express');
 const axios = require('axios');
 const xml2js = require('xml2js');
 const app = express();
-const port = process.env.PORT || 3000;
 
 // Use environment variable for API key
 require('dotenv').config();
-const API_KEY = process.env.API_KEY || 'APPCODE 09d43a591fba407fb862412970667de4';
+const API_KEY = process.env.API_KEY || 'your-api-key-here';
 
 // Global variable to store car park statuses
 let carParkStatuses = [];
@@ -15,12 +14,21 @@ let carParkStatuses = [];
 async function fetchCarParkStatuses() {
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
+            console.log('Request Config:', {
+                url: 'https://dsat.apigateway.data.gov.mo/car_park_maintance',
+                headers: {
+                    'Authorization': `Bearer ${API_KEY}`,
+                    'User-Agent': 'ParkingAPI/1.0 (your-email@example.com)'
+                },
+                timeout: 20000
+            });
+
             const response = await axios.get('https://dsat.apigateway.data.gov.mo/car_park_maintance', {
                 headers: {
                     'Authorization': `Bearer ${API_KEY}`,
                     'User-Agent': 'ParkingAPI/1.0 (your-email@example.com)'
                 },
-                timeout: 20000 // Increased to 20 seconds
+                timeout: 20000 // 20 seconds
             });
 
             const contentType = response.headers['content-type'] || '';
@@ -69,20 +77,15 @@ async function fetchCarParkStatuses() {
                 responseStatus: error.response ? error.response.status : 'N/A',
                 responseData: error.response ? error.response.data : 'N/A'
             });
-            if (attempt === 3) throw error; // Rethrow after final attempt
+            if (attempt === 3) throw error;
             await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
         }
     }
 }
 
-// Wait for initial fetch before starting the server
-(async () => {
-    await fetchCarParkStatuses(); // Initial fetch
-    app.listen(port, () => console.log(`Server running on port ${port}`));
-})();
-
-// Refresh car park statuses every 5 minutes (300,000 ms)
-setInterval(fetchCarParkStatuses, 300000);
+// Initial fetch and periodic refresh
+fetchCarParkStatuses();
+setInterval(fetchCarParkStatuses, 300000); // Every 5 minutes
 
 app.get('/', (req, res) => {
     res.send('Welcome to the Macao Parking API! Use /parking-spaces?carParkName=<name> to get parking data or /all-carparks to get all car park statuses.');
@@ -100,7 +103,6 @@ app.get('/parking-spaces', async (req, res) => {
             return res.status(503).json({ error: 'Car park data not available. Please try again later.' });
         }
 
-        // Find the car park by English name (case-insensitive)
         const targetPark = carParkStatuses.find(park => 
             park.carParkName && park.carParkName.toLowerCase() === carParkName.toLowerCase()
         );
@@ -134,3 +136,6 @@ app.get('/all-carparks', (req, res) => {
         });
     }
 });
+
+// Export the app for Vercel
+module.exports = app;
