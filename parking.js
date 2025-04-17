@@ -6,7 +6,7 @@ const port = process.env.PORT || 3000;
 
 // Use environment variable for API key
 require('dotenv').config();
-const API_KEY = process.env.API_KEY || 'your-api-key-here';
+const API_KEY = process.env.API_KEY || 'APPCODE 09d43a591fba407fb862412970667de4';
 
 // Global variable to store car park statuses
 let carParkStatuses = [];
