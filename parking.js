@@ -5,10 +5,6 @@ const xml2js = require('xml2js');
 const app = express();
 const port = process.env.PORT || 3000;
 
-app.get('/', (req, res) => {
-  res.send('Use /carparks to get parking availability in Macau.');
-});
-
 app.get('/carparks', async (req, res) => {
   try {
     const response = await axios.get('https://dsat.apigateway.data.gov.mo/car_park_maintance', {
@@ -31,21 +27,14 @@ app.get('/carparks', async (req, res) => {
       return res.status(404).json({ error: 'Car park data not available. Please try again later.' });
     }
 
-    // Normalize as an array
     const list = Array.isArray(carParks) ? carParks : [carParks];
 
-    const simplified = list.map(park => ({
-      id: park.ID,
+    const minimal = list.map(park => ({
       name: park.name,
-      englishName: park.CP_EName,
-      portugueseName: park.CP_PName,
-      carSpaces: park.Car_CNT || '0',
-      bikeSpaces: park.MB_CNT || '0',
-      time: park.Time,
-      maintenance: park.maintenance === '1'
+      carSpaces: park.Car_CNT || '0'
     }));
 
-    res.json({ updatedAt: new Date().toISOString(), carparks: simplified });
+    res.json(minimal);
 
   } catch (error) {
     console.error('Fetch error:', error.message);
@@ -54,5 +43,5 @@ app.get('/carparks', async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`🚗 Car Park API running on port ${port}`);
+  console.log(`🅿️ Minimal Car Park API running on port ${port}`);
 });
