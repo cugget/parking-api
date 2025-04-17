@@ -11,70 +11,75 @@ const API_KEY = process.env.API_KEY || 'APPCODE 09d43a591fba407fb862412970667de4
 // Global variable to store car park statuses
 let carParkStatuses = [];
 
-// Function to fetch and parse car park statuses
+// Function to fetch and parse car park statuses with retries
 async function fetchCarParkStatuses() {
-    try {
-        const response = await axios.get('https://dsat.apigateway.data.gov.mo/car_park_maintance', {
-            headers: {
-                'Authorization': `Bearer ${API_KEY}`,
-                'User-Agent': 'ParkingAPI/1.0 (your-email@example.com)'
-            },
-            timeout: 10000
-        });
-
-        // Check if response is XML
-        const contentType = response.headers['content-type'] || '';
-        if (!contentType.includes('xml')) {
-            console.error('Unexpected content type:', contentType);
-            throw new Error(`Expected XML, got ${contentType}`);
-        }
-
-        xml2js.parseString(response.data, (err, result) => {
-            if (err) {
-                console.error('XML Parsing Error:', err);
-                throw new Error('Error parsing XML: ' + err.message);
-            }
-
-            // Check if the expected structure exists
-            if (!result.CarPark || !result.CarPark.Car_park_info) {
-                console.error('Invalid XML structure: Missing CarPark or Car_park_info');
-                throw new Error('Invalid XML structure: Missing CarPark or Car_park_info');
-            }
-
-            const carParks = Array.isArray(result.CarPark.Car_park_info) ? result.CarPark.Car_park_info : [];
-            
-            // Parse and store car park statuses
-            carParkStatuses = carParks.map((park, index) => {
-                const name = park.$ && park.$.CP_EName ? park.$.CP_EName : 'N/A';
-                const carSpaces = park.$ && park.$.Car_CNT ? park.$.Car_CNT : '0';
-                const bikeSpaces = park.$ && park.$.MB_CNT ? park.$.MB_CNT : '0';
-                const isUnderMaintenance = park.$ && park.$.maintenance === '1';
-                console.log(`- Park ${index}: Name: ${name}, Car Spaces: ${carSpaces}, Bike Spaces: ${bikeSpaces}, Maintenance: ${isUnderMaintenance}`);
-                return {
-                    carParkName: name,
-                    carSpaces: parseInt(carSpaces),
-                    bikeSpaces: parseInt(bikeSpaces),
-                    lastUpdated: park.$ && park.$.Time ? park.$.Time : 'N/A',
-                    underMaintenance: isUnderMaintenance,
-                    maintenanceMessage: isUnderMaintenance ? 'This car park is currently under maintenance.' : null
-                };
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            const response = await axios.get('https://dsat.apigateway.data.gov.mo/car_park_maintance', {
+                headers: {
+                    'Authorization': `Bearer ${API_KEY}`,
+                    'User-Agent': 'ParkingAPI/1.0 (your-email@example.com)'
+                },
+                timeout: 20000 // Increased to 20 seconds
             });
 
-            console.log(`Fetched ${carParkStatuses.length} car parks at ${new Date().toISOString()}`);
-        });
-    } catch (error) {
-        console.error('Fetch Car Park Statuses Error:', {
-            message: error.message,
-            code: error.code,
-            responseStatus: error.response ? error.response.status : 'N/A',
-            responseData: error.response ? error.response.data : 'N/A'
-        });
-        carParkStatuses = []; // Reset on error
+            const contentType = response.headers['content-type'] || '';
+            if (!contentType.includes('xml')) {
+                console.error('Unexpected content type:', contentType);
+                throw new Error(`Expected XML, got ${contentType}`);
+            }
+
+            xml2js.parseString(response.data, (err, result) => {
+                if (err) {
+                    console.error('XML Parsing Error:', err);
+                    throw new Error('Error parsing XML: ' + err.message);
+                }
+
+                if (!result.CarPark && !result.ParkingData || !result.CarPark?.Car_park_info && !result.ParkingData?.Car_park_info) {
+                    console.error('Invalid XML structure: Missing CarPark, ParkingData, or Car_park_info');
+                    throw new Error('Invalid XML structure: Missing CarPark, ParkingData, or Car_park_info');
+                }
+
+                const carParks = Array.isArray(result.CarPark?.Car_park_info) ? result.CarPark.Car_park_info : 
+                                 Array.isArray(result.ParkingData?.Car_park_info) ? result.ParkingData.Car_park_info : [];
+
+                carParkStatuses = carParks.map((park, index) => {
+                    const name = park.$ && park.$.CP_EName ? park.$.CP_EName : 'N/A';
+                    const carSpaces = park.$ && park.$.Car_CNT ? park.$.Car_CNT : '0';
+                    const bikeSpaces = park.$ && park.$.MB_CNT ? park.$.MB_CNT : '0';
+                    const isUnderMaintenance = park.$ && park.$.maintenance === '1';
+                    console.log(`- Park ${index}: Name: ${name}, Car Spaces: ${carSpaces}, Bike Spaces: ${bikeSpaces}, Maintenance: ${isUnderMaintenance}`);
+                    return {
+                        carParkName: name,
+                        carSpaces: parseInt(carSpaces),
+                        bikeSpaces: parseInt(bikeSpaces),
+                        lastUpdated: park.$ && park.$.Time ? park.$.Time : 'N/A',
+                        underMaintenance: isUnderMaintenance,
+                        maintenanceMessage: isUnderMaintenance ? 'This car park is currently under maintenance.' : null
+                    };
+                });
+
+                console.log(`Fetched ${carParkStatuses.length} car parks at ${new Date().toISOString()}`);
+            });
+            return; // Exit loop on success
+        } catch (error) {
+            console.error(`Fetch attempt ${attempt} failed:`, {
+                message: error.message,
+                code: error.code,
+                responseStatus: error.response ? error.response.status : 'N/A',
+                responseData: error.response ? error.response.data : 'N/A'
+            });
+            if (attempt === 3) throw error; // Rethrow after final attempt
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
+        }
     }
 }
 
-// Fetch car park statuses when the server starts
-fetchCarParkStatuses();
+// Wait for initial fetch before starting the server
+(async () => {
+    await fetchCarParkStatuses(); // Initial fetch
+    app.listen(port, () => console.log(`Server running on port ${port}`));
+})();
 
 // Refresh car park statuses every 5 minutes (300,000 ms)
 setInterval(fetchCarParkStatuses, 300000);
@@ -129,5 +134,3 @@ app.get('/all-carparks', (req, res) => {
         });
     }
 });
-
-app.listen(port, () => console.log(`Server running on port ${port}`));
